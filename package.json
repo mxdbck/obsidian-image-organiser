@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-smart-image-paste",
+  "name": "obsidian-image-paste-organiser",
   "version": "1.0.0",
   "description": "When pasting images, allows setting the title first and then choosing a location using Obsidian's file mover.",
   "main": "main.js",
