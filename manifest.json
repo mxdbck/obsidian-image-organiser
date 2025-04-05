@@ -1,0 +1,10 @@
+{
+  "id": "smart-image-paste",
+  "name": "Smart Image Paste",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "When pasting images, allows setting the title first and then choosing a location using Obsidian's file mover.",
+  "author": "mxdbck",
+  "authorUrl": "https://github.com/mxdbck",
+  "isDesktopOnly": false
+}
