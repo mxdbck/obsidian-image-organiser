@@ -1,29 +1,8 @@
 {
-  "name": "obsidian-image-paste-organiser",
-  "version": "1.0.0",
-  "description": "When pasting images, allows setting the title first and then choosing a location using Obsidian's file mover.",
-  "main": "main.js",
-  "scripts": {
-    "dev": "node esbuild.config.mjs",
-    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "version": "node version-bump.mjs && git add manifest.json versions.json"
-  },
-  "keywords": [
-    "obsidian",
-    "obsidian-plugin",
-    "image",
-    "paste"
-  ],
-  "author": "mxdbck",
-  "license": "MIT",
   "devDependencies": {
-    "@types/node": "^16.18.126",
-    "@typescript-eslint/eslint-plugin": "5.29.0",
-    "@typescript-eslint/parser": "5.29.0",
-    "builtin-modules": "3.3.0",
-    "esbuild": "^0.14.47",
+    "@types/node": "^22.14.0",
+    "esbuild": "^0.25.2",
     "obsidian": "^1.8.7",
-    "tslib": "2.4.0",
-    "typescript": "^4.7.4"
+    "typescript": "^5.8.3"
   }
 }

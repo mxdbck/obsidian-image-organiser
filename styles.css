@@ -1,11 +1,14 @@
-.modal-button-container {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 1rem;
-  gap: 0.5rem;
+.image-rename-input-container {
+  margin-bottom: 1rem;
 }
 
-.modal input {
+.image-rename-input-container input {
   width: 100%;
-  margin-bottom: 1rem;
+  padding: 8px;
+}
+
+.image-rename-button-container {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

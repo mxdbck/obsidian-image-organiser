@@ -1,9 +1,9 @@
 {
-  "id": "obsidian-image-paste-organiser",
-  "name": "Obsidian Image Paste Organiser",
+  "id": "obsidian-image-organiser",
+  "name": "Image Organiser",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "When pasting images, allows setting the title first and then choosing a location using Obsidian's file mover.",
+  "description": "Renames and organizes pasted images into the nearest asset folder",
   "author": "mxdbck",
   "authorUrl": "https://github.com/mxdbck",
   "isDesktopOnly": false
