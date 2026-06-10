@@ -1,215 +1,288 @@
-import { 
-    App, 
-    Editor, 
-    MarkdownView, 
-    Modal, 
-    Notice, 
-    Plugin, 
-    PluginSettingTab, 
-    Setting, 
-    TFile,
-    TFolder 
-} from 'obsidian';
+import {
+    App,
+    Editor,
+    MarkdownView,
+    Modal,
+    Notice,
+    Plugin,
+    TFolder,
+} from "obsidian";
+
+function generateUUID(): string {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === "x" ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+}
 
 export default class ImageRenamerPlugin extends Plugin {
     async onload() {
-        // Register the paste handler
-        this.registerEvent(
-            this.app.workspace.on('editor-paste', this.handlePaste.bind(this))
-        );
+        this.registerDomEvent(window, "paste", this.handlePaste.bind(this), {
+            capture: true,
+        });
     }
 
-    async handlePaste(evt: ClipboardEvent, editor: Editor, markdownView: MarkdownView) {
-        // Check if pasted content contains an image
-        if (!evt.clipboardData || !evt.clipboardData.items) {
+    async handlePaste(evt: ClipboardEvent) {
+        if (!evt.clipboardData?.items) {
             return;
         }
 
-        // Look for image data in the clipboard
-        const items = evt.clipboardData.items;
-        let imageFile = null;
-        let fileType = '';
-        let fileName = '';
-
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            
-            // Handle image files
-            if (item.type.startsWith('image/')) {
-                // Prevent default paste behavior
-                evt.preventDefault();
-                
-                const blob = item.getAsFile();
-                if (!blob) continue;
-                
-                imageFile = blob;
-                fileType = item.type.split('/')[1];
-                
-                // Extract filename without extension for the dialog
-                let defaultName = '';
-                if (blob.name) {
-                    // Remove file extension if present
-                    const lastDotIndex = blob.name.lastIndexOf('.');
-                    if (lastDotIndex !== -1) {
-                        defaultName = blob.name.substring(0, lastDotIndex);
-                    } else {
-                        defaultName = blob.name;
-                    }
-                } else {
-                    defaultName = 'image';
-                }
-                
-                // Open naming modal
-                const modal = new ImageRenameModal(this.app, defaultName, async (newName) => {
-                    if (newName) {
-                        // Always add the extension
-                        const fullFileName = `${newName}.${fileType}`;
-                        
-                        // Handle the image save
-                        await this.saveImage(imageFile, fullFileName, markdownView, editor);
-                    }
-                });
-                
-                modal.open();
+        let imageItem: DataTransferItem | null = null;
+        for (let i = 0; i < evt.clipboardData.items.length; i++) {
+            if (evt.clipboardData.items[i].type.startsWith("image/")) {
+                imageItem = evt.clipboardData.items[i];
                 break;
             }
         }
-    }
 
-    async saveImage(imageFile: File, fileName: string, view: MarkdownView, editor: Editor) {
-        try {
-            // Get current file path
-            const currentFilePath = view.file?.path;
-            if (!currentFilePath) {
-                new Notice('Cannot determine current file path');
+        if (!imageItem) {
+            return;
+        }
+
+        const activeView = this.app.workspace.activeLeaf?.view;
+        if (!activeView) {
+            return;
+        }
+
+        const viewType = activeView.getViewType();
+        const isCanvas = viewType === "canvas";
+        const isMarkdown = viewType === "markdown";
+
+        if (!isCanvas && !isMarkdown) {
+            return;
+        }
+
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+
+        const blob = imageItem.getAsFile();
+        if (!blob) {
+            return;
+        }
+
+        const fileType = imageItem.type.split("/")[1];
+
+        if (isMarkdown) {
+            const markdownView = activeView as MarkdownView;
+            const filePath = markdownView.file?.path;
+            const editor = markdownView.editor;
+
+            if (!filePath || !editor) {
+                new Notice("Cannot determine current file path");
                 return;
             }
 
-            // Find the closest assets folder
-            const assetFolderPath = this.findClosestAssetFolder(currentFilePath);
-            
-            // Create full path for the new image
-            const imagePath = `${assetFolderPath}/${fileName}`;
-            
-            // Read the image data
-            const arrayBuffer = await imageFile.arrayBuffer();
-            
-            // Save the file to the vault
-            await this.app.vault.createBinary(imagePath, arrayBuffer);
-            
-            // Insert markdown link at cursor position
-            const markdownLink = `![${fileName}](${imagePath})`;
-            editor.replaceSelection(markdownLink);
-            
-            new Notice(`Image saved as "${fileName}"`);
-        } catch (error) {
-            console.error('Error saving image:', error);
-            new Notice(`Error saving image: ${error.message}`);
+            const cursor = editor.getCursor();
+            const assetFolderPath = this.findClosestAssetFolder(filePath);
+
+            new ImageRenameModal(this.app, generateUUID(), async (newName) => {
+                if (!newName) return;
+
+                const fileName = `${newName}.${fileType}`;
+                const imagePath = assetFolderPath
+                    ? `${assetFolderPath}/${fileName}`
+                    : fileName;
+
+                try {
+                    await this.app.vault.createBinary(
+                        imagePath,
+                        await blob.arrayBuffer(),
+                    );
+                    editor.setCursor(cursor);
+                    editor.replaceSelection(`![${fileName}](${imagePath})`);
+                    new Notice(`Image saved as "${fileName}"`);
+                } catch (error) {
+                    console.error("[ImageRenamer] Error saving image:", error);
+                    new Notice(`Error saving image: ${error.message}`);
+                }
+            }).open();
+        } else if (isCanvas) {
+            const canvasView = activeView as any;
+            const canvas = canvasView.canvas;
+
+            const canvasFilePath: string =
+                canvasView.file?.path ??
+                canvasView.canvas?.file?.path ??
+                canvasView.leaf?.view?.file?.path ??
+                "";
+
+            const assetFolderPath = canvasFilePath
+                ? this.findClosestAssetFolder(canvasFilePath)
+                : this.folderExists("assets")
+                  ? "assets"
+                  : "Assets";
+
+            // Determine if a valid text/markdown card is currently selected
+            let targetNode: any = null;
+            let targetEditor: Editor | null = null;
+            let cursor: any = null;
+
+            if (canvas && canvas.selection && canvas.selection.size === 1) {
+                const selectedNode = Array.from(canvas.selection)[0] as any;
+                // Grab the internal editor if the user is actively editing the node
+                targetEditor =
+                    selectedNode.child?.editor ??
+                    selectedNode.child?.view?.editor;
+
+                // Make sure it's a node we can actually inject text into
+                if (targetEditor || typeof selectedNode.text === "string") {
+                    targetNode = selectedNode;
+                    if (targetEditor) {
+                        cursor = targetEditor.getCursor();
+                    }
+                }
+            }
+
+            new ImageRenameModal(this.app, generateUUID(), async (newName) => {
+                if (!newName) return;
+
+                const fileName = `${newName}.${fileType}`;
+                const imagePath = assetFolderPath
+                    ? `${assetFolderPath}/${fileName}`
+                    : fileName;
+
+                try {
+                    await this.app.vault.createBinary(
+                        imagePath,
+                        await blob.arrayBuffer(),
+                    );
+
+                    if (canvas) {
+                        if (targetNode) {
+                            // 1. Insert directly into the selected text card
+                            if (targetEditor) {
+                                if (cursor) targetEditor.setCursor(cursor);
+                                targetEditor.replaceSelection(
+                                    `![${fileName}](${imagePath})`,
+                                );
+                            } else {
+                                // Append if they have it selected but aren't actively focused/typing in it
+                                targetNode.setText(
+                                    targetNode.text +
+                                        `\n![${fileName}](${imagePath})`,
+                                );
+                            }
+                        } else {
+                            // 2. No valid card selected, fallback to creating a standalone node
+                            const file =
+                                this.app.vault.getAbstractFileByPath(imagePath);
+                            if (file) {
+                                const center = canvas.getViewportCenter?.();
+                                const { x, y } = center ?? { x: 0, y: 0 };
+
+                                canvas.createFileNode({
+                                    file,
+                                    pos: { x, y },
+                                    size: { width: 400, height: 300 },
+                                    focus: true,
+                                });
+                            }
+                        }
+
+                        // Force the canvas to persist the changes
+                        canvas.requestSave?.();
+                    }
+
+                    new Notice(`Image saved as "${fileName}"`);
+                } catch (error) {
+                    console.error(
+                        "[ImageRenamer] Error saving canvas image:",
+                        error,
+                    );
+                    new Notice(`Error saving image: ${error.message}`);
+                }
+            }).open();
         }
     }
 
     findClosestAssetFolder(filePath: string): string {
-        // Get all path segments
-        const pathParts = filePath.split('/');
-        pathParts.pop(); // Remove the filename
+        const pathParts = filePath.split("/");
+        pathParts.pop();
 
-        // Start from the current directory and move up the tree
         while (pathParts.length > 0) {
-            const currentPath = pathParts.join('/');
-            
-            // Check for 'assets' or 'Assets' folder (with 's' at the end)
-            const assetsFolder = `${currentPath}/assets`;
-            const AssetsFolder = `${currentPath}/Assets`;
-            
-            if (this.folderExists(assetsFolder)) {
-                return assetsFolder;
-            }
-            if (this.folderExists(AssetsFolder)) {
-                return AssetsFolder;
-            }
-            
-            pathParts.pop(); // Move up one directory
+            const currentPath = pathParts.join("/");
+            const a = `${currentPath}/assets`;
+            const A = `${currentPath}/Assets`;
+
+            if (this.folderExists(a)) return a;
+            if (this.folderExists(A)) return A;
+            pathParts.pop();
         }
-        
-        // If no assets folder is found in parent directories,
-        // check if there's an assets folder directly in the root
-        if (this.folderExists('assets')) {
-            return 'assets';
-        }
-        if (this.folderExists('Assets')) {
-            return 'Assets';
-        }
-        
-        // If no assets folder is found anywhere, return the vault root
-        return '';
+
+        if (this.folderExists("assets")) return "assets";
+        if (this.folderExists("Assets")) return "Assets";
+        return "";
     }
 
     folderExists(path: string): boolean {
-        const folder = this.app.vault.getAbstractFileByPath(path);
-        return folder instanceof TFolder;
+        return this.app.vault.getAbstractFileByPath(path) instanceof TFolder;
     }
 }
 
 class ImageRenameModal extends Modal {
     private result: string;
-    private onSubmit: (result: string) => void;
-    private initialFileName: string;
+    private onSubmit: (result: string | null) => void;
     private inputEl: HTMLInputElement;
 
-    constructor(app: App, initialFileName: string, onSubmit: (result: string) => void) {
+    constructor(
+        app: App,
+        initialFileName: string,
+        onSubmit: (result: string | null) => void,
+    ) {
         super(app);
-        this.initialFileName = initialFileName;
-        this.onSubmit = onSubmit;
         this.result = initialFileName;
+        this.onSubmit = onSubmit;
     }
 
     onOpen() {
         const { contentEl } = this;
-        contentEl.createEl('h2', { text: 'Rename Image' });
+        contentEl.createEl("h2", { text: "Rename Image" });
 
-        // Create form container (but don't use actual form element)
-        const formContainer = contentEl.createDiv({ cls: 'image-rename-container' });
+        const formContainer = contentEl.createDiv({
+            cls: "image-rename-container",
+        });
+        const inputContainer = formContainer.createDiv({
+            cls: "image-rename-input-container",
+        });
 
-        // Create input field
-        const inputContainer = formContainer.createDiv({ cls: 'image-rename-input-container' });
-        this.inputEl = inputContainer.createEl('input', {
-            type: 'text',
-            value: this.initialFileName
+        this.inputEl = inputContainer.createEl("input", {
+            type: "text",
+            value: this.result,
         });
         this.inputEl.focus();
         this.inputEl.select();
-        
-        this.inputEl.addEventListener('input', () => {
+        this.inputEl.addEventListener("input", () => {
             this.result = this.inputEl.value;
         });
 
-        // Create buttons
-        const buttonContainer = formContainer.createDiv({ cls: 'image-rename-button-container' });
-        
-        const cancelButton = buttonContainer.createEl('button', {
-            text: 'Cancel',
-            type: 'button'
+        const buttonContainer = formContainer.createDiv({
+            cls: "image-rename-button-container",
         });
-        cancelButton.addEventListener('click', (e) => {
+
+        const cancelButton = buttonContainer.createEl("button", {
+            text: "Cancel",
+            type: "button",
+        });
+        cancelButton.addEventListener("click", (e) => {
             e.preventDefault();
             this.close();
             this.onSubmit(null);
         });
 
-        const submitButton = buttonContainer.createEl('button', {
-            text: 'Save',
-            type: 'button',
-            cls: 'mod-cta'
+        const submitButton = buttonContainer.createEl("button", {
+            text: "Save",
+            type: "button",
+            cls: "mod-cta",
         });
-        submitButton.addEventListener('click', (e) => {
+        submitButton.addEventListener("click", (e) => {
             e.preventDefault();
             this.close();
             this.onSubmit(this.result);
         });
 
-        // Handle Enter key press on the input field
-        this.inputEl.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
+        this.inputEl.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
                 e.preventDefault();
                 this.close();
                 this.onSubmit(this.result);
@@ -218,7 +291,6 @@ class ImageRenameModal extends Modal {
     }
 
     onClose() {
-        const { contentEl } = this;
-        contentEl.empty();
+        this.contentEl.empty();
     }
 }
